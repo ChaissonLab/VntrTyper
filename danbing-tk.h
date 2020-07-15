@@ -23,10 +23,10 @@
 using namespace std;
 
 //typedef unordered_set<size_t> kmer_set;
-typedef unordered_map<size_t, uint32_t> kmerCount_umap;
-typedef unordered_map<size_t, atomic_uint32_t> kmer_aCount_umap;
+typedef unordered_map<size_t, uint32_t> kmerCount_umap; // assume count < (2^16 -1)
+typedef unordered_map<size_t, atomic_size_t> kmer_aCount_umap;
 typedef unordered_map<size_t, uint8_t> GraphType;
-typedef unordered_map<size_t, unordered_set<uint32_t>> kmeruIndex_umap;
+typedef unordered_map<size_t, unordered_set<uint32_t>> kmeruIndex_umap; // assume number of loci < (2^16 -1)
 typedef unordered_map<size_t, vector<uint16_t>> kmerAttr_dict;
 typedef unordered_map<string, unordered_map<string, uint16_t>> adj_dict;
 typedef unordered_map<string, unordered_map<string, vector<uint16_t>>> adjAttr_dict;
@@ -274,7 +274,7 @@ size_t countLoci(string fname) {
     return nloci;
 }
 
-size_t countBedLoci(string& fname) {
+size_t countBedLoci(string fname) {
     ifstream inf(fname);
     assert(inf);
     string line;
@@ -389,36 +389,6 @@ void readKmersFile(T& kmerDB, kmeruIndex_umap& kmerDBi, string fname, size_t sta
     f.close();
 }
 
-// record kmerDB (if has kmc) and kmerIndex_dict kmerDBi from binray kmers file
-template <typename T>
-void readBinKmers(T& kmerDB, kmeruIndex_umap& kmerDBi, string fname, size_t startInd = 0, bool count = true, uint16_t threshold = 0) {
-    ifstream f(fname, ios::binary);
-    assert(f);
-    bool haskmc;
-    size_t nloci, nkmers;
-    f.read((char*) &haskmc, 1);
-    f.read((char*) &nloci, 8);
-    f.read((char*) &nkmers, 8);
-    
-    vector<size_t> lociIndex(nloci);
-    vector<size_t> kmerKeys(nkmers);
-    vector<uint32_t> kmerVals;
-    f.read((char*) &lociIndex[0], 8*nloci);
-    f.read((char*) &kmerKeys[0], 8*nkmers);
-    if (haskmc) { 
-        kmerVals.resize(nkmers);
-        f.read((char*) &kmerVals[0], 4*nkmers);
-    }
-
-    size_t locus = 0;
-    for (size_t i = 0; i < nkmers; ++i) {
-        if (lociIndex[locus] == i) { ++locus; }
-        kmerDB[locus][kmerKeys[i]] = (haskmc ? kmerVals[i] : 0);
-        kmerDBi[kmerKeys[i]].insert(locus);
-    }
-    f.close();
-}
-
 template <typename T>
 void writeKmers(string outfpref, T& kmerDB, size_t threshold = 0) {
     ofstream fout(outfpref+".kmers");
@@ -430,40 +400,6 @@ void writeKmers(string outfpref, T& kmerDB, size_t threshold = 0) {
             fout << p.first << '\t' << (size_t)p.second << '\n';
         }
     }
-    fout.close();
-}
-
-template <typename T>
-void writeBinKmers(string outfpref, T& kmerDB, size_t threshold = 0, bool writeKmc = true) {
-    ofstream fout(outfpref+".kmers", ios::binary);
-    assert(fout);
-    size_t nloci = kmerDB.size();
-
-    // populate lociIndex, keys, vals
-    vector<size_t> lociIndex(nloci,0);
-    vector<size_t> kmerKeys;
-    vector<uint32_t> kmerVals;
-    for (size_t i = 0; i < kmerDB.size(); ++i) {
-        size_t nkmers = kmerDB[i].size();
-        lociIndex[i] = (i == 0 ? nkmers : lociIndex[i-1] + nkmers);
-        kmerKeys.resize(lociIndex[i]);
-        kmerVals.resize(lociIndex[i]);
-        size_t j = (i == 0 ? 0 : lociIndex[i-1]);
-        for (auto &p : kmerDB[i]) {
-            kmerKeys[j] = p.first;
-            kmerVals[j] = p.second;
-            ++j;
-        }
-    }
-
-    // write meta data
-    fout.write((char*) &writeKmc, 1);
-    fout.write((char*) &nloci, 8);
-    fout.write((char*) &lociIndex.back(), 8);
-    fout.write((char*) &lociIndex[0], 8*nloci);
-    // write data
-    fout.write((char*) &kmerKeys[0], 8*lociIndex.back());
-    if (writeKmc) { fout.write((char*) &kmerVals[0], 4*lociIndex.back()); }
     fout.close();
 }
 
